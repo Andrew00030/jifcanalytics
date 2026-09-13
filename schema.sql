@@ -32,6 +32,7 @@ CREATE TABLE lesoes (
     data_lesao DATE NOT NULL,
     FOREIGN KEY (atleta_id) REFERENCES atletas(id) ON DELETE CASCADE
 );
+
 CREATE TABLE IF NOT EXISTS lesoes (
     id INT AUTO_INCREMENT PRIMARY KEY,
     atleta_id INT NOT NULL,
@@ -41,5 +42,34 @@ CREATE TABLE IF NOT EXISTS lesoes (
     previsao_retorno DATE,
     status ENUM('Em Tratamento', 'Recuperado') DEFAULT 'Em Tratamento',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (atleta_id) REFERENCES atletas(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS partidas (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    usuario_id INT NOT NULL,
+    adversario VARCHAR(100) NOT NULL,
+    data_partida DATE NOT NULL,
+    local VARCHAR(120) DEFAULT NULL,
+    competicao VARCHAR(100) DEFAULT NULL,
+    resultado VARCHAR(50) DEFAULT NULL,
+    observacoes TEXT DEFAULT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS estatisticas_partidas (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    partida_id INT NOT NULL,
+    atleta_id INT NOT NULL,
+    minutos_jogados INT NOT NULL DEFAULT 0,
+    gols INT NOT NULL DEFAULT 0,
+    assistencias INT NOT NULL DEFAULT 0,
+    cartoes_amarelos INT NOT NULL DEFAULT 0,
+    cartoes_vermelhos INT NOT NULL DEFAULT 0,
+    avaliacao DECIMAL(3,1) DEFAULT 0,
+    observacoes TEXT DEFAULT NULL,
+    UNIQUE KEY unique_registro_partida_atleta (partida_id, atleta_id),
+    FOREIGN KEY (partida_id) REFERENCES partidas(id) ON DELETE CASCADE,
     FOREIGN KEY (atleta_id) REFERENCES atletas(id) ON DELETE CASCADE
 );

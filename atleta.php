@@ -26,6 +26,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 }
 
+// Remover lesão
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete_lesao') {
+    $lesao_id = (int)($_POST['lesao_id'] ?? 0);
+
+    if ($lesao_id > 0) {
+        $stmt = $pdo->prepare("DELETE FROM lesoes WHERE id = ? AND atleta_id = ?");
+        $stmt->execute([$lesao_id, $atleta_id]);
+    }
+
+    header("Location: atleta.php?id=" . $atleta_id);
+    exit;
+}
+
+// Atualizar foto do atleta no perfil
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update_photo') {
+    $foto_path = '';
+    if (isset($_FILES['foto']) && $_FILES['foto']['error'] === UPLOAD_ERR_OK) {
+        $extensao = strtolower(pathinfo($_FILES['foto']['name'], PATHINFO_EXTENSION));
+        $extensoesPermitidas = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+        if (in_array($extensao, $extensoesPermitidas)) {
+            $nomeArquivo = 'atleta_' . $atleta_id . '_' . time() . '.' . $extensao;
+            $destino = __DIR__ . '/uploads/atletas/' . $nomeArquivo;
+            if (move_uploaded_file($_FILES['foto']['tmp_name'], $destino)) {
+                $foto_path = 'uploads/atletas/' . $nomeArquivo;
+            }
+        }
+    }
+
+    if (!empty($foto_path)) {
+        $stmt = $pdo->prepare("UPDATE atletas SET foto_url = ? WHERE id = ?");
+        $stmt->execute([$foto_path, $atleta_id]);
+    }
+
+    header("Location: atleta.php?id=" . $atleta_id);
+    exit;
+}
+
 // Buscar dados do atleta
 $stmt = $pdo->prepare("SELECT * FROM atletas WHERE id = ?");
 $stmt->execute([$atleta_id]);
@@ -43,12 +80,26 @@ $stmtStats = $pdo->prepare("
         COALESCE(SUM(assistencias), 0) as total_assistencias,
         COALESCE(SUM(cartoes_amarelos), 0) as cartoes_amarelos,
         COALESCE(SUM(cartoes_vermelhos), 0) as cartoes_vermelhos,
-        COUNT(DISTINCT partida_id) as partidas
-    FROM estatisticas 
+        COUNT(DISTINCT partida_id) as partidas,
+        COALESCE(SUM(minutos_jogados), 0) as total_minutos
+    FROM estatisticas_partidas 
     WHERE atleta_id = ?
 ");
 $stmtStats->execute([$atleta_id]);
 $stats = $stmtStats->fetch(PDO::FETCH_ASSOC);
+
+// Buscar histórico de partidas do atleta
+$stmtPartidasAtleta = $pdo->prepare("
+    SELECT p.id, p.adversario, p.data_partida, p.local, p.competicao, p.resultado,
+           ep.minutos_jogados, ep.gols, ep.assistencias, ep.cartoes_amarelos,
+           ep.cartoes_vermelhos, ep.avaliacao, ep.observacoes
+    FROM estatisticas_partidas ep
+    JOIN partidas p ON p.id = ep.partida_id
+    WHERE ep.atleta_id = ?
+    ORDER BY p.data_partida DESC
+");
+$stmtPartidasAtleta->execute([$atleta_id]);
+$historicoPartidas = $stmtPartidasAtleta->fetchAll(PDO::FETCH_ASSOC);
 
 // Buscar histórico de lesões
 $stmtLesoes = $pdo->prepare("SELECT * FROM lesoes WHERE atleta_id = ? ORDER BY data_inicio DESC");
@@ -273,6 +324,7 @@ $lesoes = $stmtLesoes->fetchAll(PDO::FETCH_ASSOC);
                 <?php if (!empty($atleta['data_nascimento'])): ?>
                     <p><small>Data de Nasc.: <?= date('d/m/Y', strtotime($atleta['data_nascimento'])) ?></small></p>
                 <?php endif; ?>
+                <button class="btn-add" onclick="openPhotoModal()">Editar Foto</button>
             </div>
         </div>
 
@@ -282,6 +334,10 @@ $lesoes = $stmtLesoes->fetchAll(PDO::FETCH_ASSOC);
             <div class="card-stat">
                 <span>Partidas</span>
                 <strong><?= $stats['partidas'] ?></strong>
+            </div>
+            <div class="card-stat">
+                <span>Minutos</span>
+                <strong><?= $stats['total_minutos'] ?></strong>
             </div>
             <div class="card-stat">
                 <span>Gols</span>
@@ -299,6 +355,45 @@ $lesoes = $stmtLesoes->fetchAll(PDO::FETCH_ASSOC);
                 <span>Cartões Vermelhos</span>
                 <strong><?= $stats['cartoes_vermelhos'] ?></strong>
             </div>
+        </div>
+
+        <div class="section-header">
+            <h2 class="section-title">Histórico de Partidas</h2>
+        </div>
+        <div class="lesoes-list">
+            <?php if (empty($historicoPartidas)): ?>
+                <div class="lesao-card">
+                    <p style="color: #777; margin: 0;">Nenhuma partida registrada para este atleta.</p>
+                </div>
+            <?php else: ?>
+                <?php foreach ($historicoPartidas as $partida): ?>
+                    <div class="lesao-card">
+                        <div>
+                            <strong style="color: #fff; font-size: 16px; display: block;">
+                                <?= htmlspecialchars($partida['adversario']) ?>
+                            </strong>
+                            <span style="color: #aaa; font-size: 13px;">
+                                <?= date('d/m/Y', strtotime($partida['data_partida'])) ?>
+                                <?= $partida['competicao'] ? ' | ' . htmlspecialchars($partida['competicao']) : '' ?>
+                                <?= $partida['local'] ? ' | ' . htmlspecialchars($partida['local']) : '' ?>
+                                <?= $partida['resultado'] ? ' | Resultado: ' . htmlspecialchars($partida['resultado']) : '' ?>
+                            </span>
+                            <p style="color: #cfcfcf; font-size: 13px; margin: 8px 0 0 0;">
+                                Minutos: <?= (int)$partida['minutos_jogados'] ?> |
+                                Gols: <?= (int)$partida['gols'] ?> |
+                                Assistências: <?= (int)$partida['assistencias'] ?> |
+                                Cartões: <?= (int)$partida['cartoes_amarelos'] ?> amarelo / <?= (int)$partida['cartoes_vermelhos'] ?> vermelho |
+                                Avaliação: <?= htmlspecialchars((string)$partida['avaliacao']) ?>
+                            </p>
+                            <?php if (!empty($partida['observacoes'])): ?>
+                                <p style="color: #888; font-size: 13px; margin: 6px 0 0 0;">
+                                    <?= htmlspecialchars($partida['observacoes']) ?>
+                                </p>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+            <?php endif; ?>
         </div>
 
         <!-- Histórico e Cadastro de Lesões -->
@@ -329,14 +424,40 @@ $lesoes = $stmtLesoes->fetchAll(PDO::FETCH_ASSOC);
                                 </p>
                             <?php endif; ?>
                         </div>
-                        <div>
+                        <div class="lesao-actions">
                             <span class="status <?= $lesao['status'] === 'Em Tratamento' ? 'status-tratamento' : 'status-recuperado' ?>">
                                 <?= htmlspecialchars($lesao['status']) ?>
                             </span>
+                            <form method="POST" class="delete-lesao-form" onsubmit="return confirm('Deseja remover esta lesão?');">
+                                <input type="hidden" name="action" value="delete_lesao">
+                                <input type="hidden" name="lesao_id" value="<?= $lesao['id'] ?>">
+                                <button type="submit" class="delete-btn small-delete">×</button>
+                            </form>
                         </div>
                     </div>
                 <?php endforeach; ?>
             <?php endif; ?>
+        </div>
+    </div>
+
+    <!-- Modal para atualizar foto -->
+    <div class="modal-overlay" id="modalFoto">
+        <div class="modal-body">
+            <h2 style="color: #fff; margin-top: 0;">Atualizar Foto</h2>
+            <form action="" method="POST" enctype="multipart/form-data">
+                <input type="hidden" name="action" value="update_photo">
+                <div class="form-group">
+                    <label for="foto">Escolher imagem</label>
+                    <input type="file" id="foto" name="foto" accept="image/*" required>
+                    <div class="preview-box">
+                        <img src="" id="previewFoto" alt="Preview da foto" class="preview-image">
+                    </div>
+                </div>
+                <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
+                    <button type="button" class="btn-add" style="background: #333; color: #fff;" onclick="closePhotoModal()">Cancelar</button>
+                    <button type="submit" class="btn-add">Salvar Foto</button>
+                </div>
+            </form>
         </div>
     </div>
 
@@ -390,6 +511,39 @@ $lesoes = $stmtLesoes->fetchAll(PDO::FETCH_ASSOC);
         function closeModal() {
             document.getElementById('modalLesao').style.display = 'none';
         }
+        function openPhotoModal() {
+            document.getElementById('modalFoto').style.display = 'flex';
+        }
+        function closePhotoModal() {
+            document.getElementById('modalFoto').style.display = 'none';
+        }
+
+        function setupPreview(inputId, previewId) {
+            const input = document.getElementById(inputId);
+            const preview = document.getElementById(previewId);
+
+            if (!input || !preview) {
+                return;
+            }
+
+            input.addEventListener('change', function () {
+                if (!this.files || !this.files[0]) {
+                    preview.src = '';
+                    preview.style.display = 'none';
+                    return;
+                }
+
+                const reader = new FileReader();
+                reader.onload = function (e) {
+                    preview.src = e.target.result;
+                    preview.style.display = 'block';
+                };
+                reader.readAsDataURL(this.files[0]);
+            });
+        }
+
+        setupPreview('fotoCadastro', 'previewCadastro');
+        setupPreview('foto', 'previewFoto');
     </script>
 </body>
 </html>
