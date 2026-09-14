@@ -73,8 +73,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $data_partida = trim($_POST['data_partida'] ?? '');
         $local = trim($_POST['local'] ?? '');
         $competicao = trim($_POST['competicao'] ?? '');
-        $resultado = trim($_POST['resultado'] ?? '');
+        $gols_time = (int)($_POST['gols_time'] ?? 0);
+        $gols_adversario = (int)($_POST['gols_adversario'] ?? 0);
         $observacoes = trim($_POST['observacoes'] ?? '');
+        $resultado = $gols_time . ' x ' . $gols_adversario;
 
         if (!empty($adversario) && !empty($data_partida)) {
             $stmt = $pdo->prepare("INSERT INTO partidas (usuario_id, adversario, data_partida, local, competicao, resultado, observacoes) VALUES (?, ?, ?, ?, ?, ?, ?)");
@@ -379,8 +381,12 @@ $view = $_GET['view'] ?? ($isLoggedIn ? 'dashboard' : 'login');
 
                 <div class="form-row">
                     <div class="form-group" style="flex: 1;">
-                        <label>RESULTADO</label>
-                        <input type="text" name="resultado" class="form-control" placeholder="Vitória / Derrota / Empate">
+                        <label>PLACAR DO JOGO</label>
+                        <div style="display: flex; gap: 0.75rem; align-items: center;">
+                            <input type="number" name="gols_time" class="form-control" value="0" min="0" style="width: 90px;">
+                            <span style="color: #a3e635; font-weight: 900;">x</span>
+                            <input type="number" name="gols_adversario" class="form-control" value="0" min="0" style="width: 90px;">
+                        </div>
                     </div>
                     <div class="form-group" style="flex: 1;">
                         <label>OBSERVAÇÕES</label>
