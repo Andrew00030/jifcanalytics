@@ -80,8 +80,7 @@ $stmtStats = $pdo->prepare("
         COALESCE(SUM(assistencias), 0) as total_assistencias,
         COALESCE(SUM(cartoes_amarelos), 0) as cartoes_amarelos,
         COALESCE(SUM(cartoes_vermelhos), 0) as cartoes_vermelhos,
-        COUNT(DISTINCT partida_id) as partidas,
-        COALESCE(SUM(minutos_jogados), 0) as total_minutos
+        COUNT(DISTINCT partida_id) as partidas
     FROM estatisticas_partidas 
     WHERE atleta_id = ?
 ");
@@ -91,12 +90,11 @@ $stats = $stmtStats->fetch(PDO::FETCH_ASSOC);
 // Buscar histórico de partidas do atleta
 $stmtPartidasAtleta = $pdo->prepare("
     SELECT p.id, p.adversario, p.data_partida, p.local, p.competicao, p.resultado,
-           ep.minutos_jogados, ep.gols, ep.assistencias, ep.cartoes_amarelos,
-           ep.cartoes_vermelhos, ep.avaliacao, ep.observacoes
+            ep.gols, ep.assistencias, ep.cartoes_amarelos, ep.cartoes_vermelhos
     FROM estatisticas_partidas ep
     JOIN partidas p ON p.id = ep.partida_id
     WHERE ep.atleta_id = ?
-    ORDER BY p.data_partida DESC
+    ORDER BY p.data_partida DESC, p.id DESC
 ");
 $stmtPartidasAtleta->execute([$atleta_id]);
 $historicoPartidas = $stmtPartidasAtleta->fetchAll(PDO::FETCH_ASSOC);
@@ -336,10 +334,6 @@ $lesoes = $stmtLesoes->fetchAll(PDO::FETCH_ASSOC);
                 <strong><?= $stats['partidas'] ?></strong>
             </div>
             <div class="card-stat">
-                <span>Minutos</span>
-                <strong><?= $stats['total_minutos'] ?></strong>
-            </div>
-            <div class="card-stat">
                 <span>Gols</span>
                 <strong><?= $stats['total_gols'] ?></strong>
             </div>
@@ -379,17 +373,10 @@ $lesoes = $stmtLesoes->fetchAll(PDO::FETCH_ASSOC);
                                 <?= $partida['resultado'] ? ' | Resultado: ' . htmlspecialchars($partida['resultado']) : '' ?>
                             </span>
                             <p style="color: #cfcfcf; font-size: 13px; margin: 8px 0 0 0;">
-                                Minutos: <?= (int)$partida['minutos_jogados'] ?> |
                                 Gols: <?= (int)$partida['gols'] ?> |
                                 Assistências: <?= (int)$partida['assistencias'] ?> |
-                                Cartões: <?= (int)$partida['cartoes_amarelos'] ?> amarelo / <?= (int)$partida['cartoes_vermelhos'] ?> vermelho |
-                                Avaliação: <?= htmlspecialchars((string)$partida['avaliacao']) ?>
+                                Cartões: <?= (int)$partida['cartoes_amarelos'] ?> amarelo / <?= (int)$partida['cartoes_vermelhos'] ?> vermelho
                             </p>
-                            <?php if (!empty($partida['observacoes'])): ?>
-                                <p style="color: #888; font-size: 13px; margin: 6px 0 0 0;">
-                                    <?= htmlspecialchars($partida['observacoes']) ?>
-                                </p>
-                            <?php endif; ?>
                         </div>
                     </div>
                 <?php endforeach; ?>
