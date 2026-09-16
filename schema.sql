@@ -17,20 +17,7 @@ CREATE TABLE atletas (
     posicao VARCHAR(50) NOT NULL,
     foto_url VARCHAR(255) DEFAULT NULL,
     data_nascimento DATE DEFAULT NULL,
-    gols INT DEFAULT 0,
-    assistencias INT DEFAULT 0,
-    cartoes_amarelos INT DEFAULT 0,
-    cartoes_vermelhos INT DEFAULT 0,
     FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE
-);
-
-CREATE TABLE lesoes (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    atleta_id INT NOT NULL,
-    tipo VARCHAR(100) NOT NULL,
-    descricao TEXT DEFAULT NULL,
-    data_lesao DATE NOT NULL,
-    FOREIGN KEY (atleta_id) REFERENCES atletas(id) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS lesoes (
@@ -53,7 +40,6 @@ CREATE TABLE IF NOT EXISTS partidas (
     local VARCHAR(120) DEFAULT NULL,
     competicao VARCHAR(100) DEFAULT NULL,
     resultado VARCHAR(50) DEFAULT NULL,
-    observacoes TEXT DEFAULT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE CASCADE
 );
@@ -62,13 +48,10 @@ CREATE TABLE IF NOT EXISTS estatisticas_partidas (
     id INT AUTO_INCREMENT PRIMARY KEY,
     partida_id INT NOT NULL,
     atleta_id INT NOT NULL,
-    minutos_jogados INT NOT NULL DEFAULT 0,
     gols INT NOT NULL DEFAULT 0,
     assistencias INT NOT NULL DEFAULT 0,
     cartoes_amarelos INT NOT NULL DEFAULT 0,
     cartoes_vermelhos INT NOT NULL DEFAULT 0,
-    avaliacao DECIMAL(3,1) DEFAULT 0,
-    observacoes TEXT DEFAULT NULL,
     UNIQUE KEY unique_registro_partida_atleta (partida_id, atleta_id),
     FOREIGN KEY (partida_id) REFERENCES partidas(id) ON DELETE CASCADE,
     FOREIGN KEY (atleta_id) REFERENCES atletas(id) ON DELETE CASCADE

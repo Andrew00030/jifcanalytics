@@ -215,18 +215,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
     }
 
-    // Registrar Lesão
-    if ($action === 'add_injury' && isset($_SESSION['user_id'])) {
-        $atleta_id = $_POST['atleta_id'];
-        $tipo = $_POST['tipo'];
-        $descricao = $_POST['descricao'];
-        $data = $_POST['data'];
-
-        $stmt = $pdo->prepare("INSERT INTO lesoes (atleta_id, tipo, descricao, data_lesao) VALUES (?, ?, ?, ?)");
-        $stmt->execute([$atleta_id, $tipo, $descricao, $data]);
-        header('Location: index.php?atleta=' . $atleta_id);
-        exit;
-    }
 }
 
 // Excluir atleta
