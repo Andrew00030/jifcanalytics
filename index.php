@@ -2,15 +2,18 @@
 session_start();
 require_once 'db.php';
 
+// Recupera uma mensagem de erro da requisição anterior e a remove da sessão.
 $matchError = $_SESSION['match_error'] ?? '';
 unset($_SESSION['match_error']);
 
 // --- AÇÕES DO BACKEND (POST) ---
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // Identifica qual formulário enviou a requisição.
     $action = $_POST['action'] ?? '';
 
     // Registro
     if ($action === 'register') {
+        // Cria o usuário e armazena somente o hash seguro da senha.
         $nome = $_POST['nome'];
         $email = $_POST['email'];
         $senha = password_hash($_POST['senha'], PASSWORD_BCRYPT);
@@ -24,6 +27,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // Login
     if ($action === 'login') {
+        // Localiza o usuário pelo e-mail e compara a senha ao hash armazenado.
         $email = $_POST['email'];
         $senha = $_POST['senha'];
 
@@ -40,6 +44,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // Adicionar Atleta
     if ($action === 'add_athlete' && isset($_SESSION['user_id'])) {
+        // Coleta os dados básicos do atleta para vinculá-lo ao usuário logado.
         $nome = $_POST['nome'];
         $numero = $_POST['numero'];
         $posicao = $_POST['posicao'];
@@ -48,6 +53,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $foto_path = '';
 
         if (isset($_FILES['foto']) && $_FILES['foto']['error'] === UPLOAD_ERR_OK) {
+            // Aceita extensões de imagem permitidas e salva o upload com nome único.
             $extensao = pathinfo($_FILES['foto']['name'], PATHINFO_EXTENSION);
             $extensao = strtolower($extensao);
             $extensoesPermitidas = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
@@ -61,6 +67,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if (empty($foto_path)) {
+            // Prioriza a URL informada ou usa uma imagem padrão quando não há upload.
             $foto_path = $foto_url ?: 'img/default.jpg';
         }
 
@@ -72,6 +79,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // Registrar Partida e Estatísticas por Atleta
     if ($action === 'add_match' && isset($_SESSION['user_id'])) {
+        // Para uma partida futura, o placar é normalizado para zero.
         $adversario = trim($_POST['adversario'] ?? '');
         $data_partida = trim($_POST['data_partida'] ?? '');
         $partidaFutura = $data_partida > date('Y-m-d');
@@ -82,6 +90,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $resultado = $gols_time . ' x ' . $gols_adversario;
 
         if (!empty($adversario) && !empty($data_partida)) {
+            // Considera apenas atletas sem lesão em tratamento ou suspensão ativa.
             $stmtAtletas = $pdo->prepare("SELECT a.id FROM atletas a WHERE a.usuario_id = ? AND NOT EXISTS (SELECT 1 FROM lesoes l WHERE l.atleta_id = a.id AND l.status = 'Em Tratamento') ORDER BY a.nome ASC");
             $stmtAtletas->execute([$_SESSION['user_id']]);
             $atletas = $stmtAtletas->fetchAll();
@@ -103,6 +112,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             if ($totalGolsAtletas > $gols_time) {
+                // Impede que os gols individuais ultrapassem os gols do time.
                 $_SESSION['match_error'] = "Os gols dos atletas ({$totalGolsAtletas}) não podem ser maiores que os gols do time no placar ({$gols_time}).";
                 header('Location: index.php');
                 exit;
@@ -120,6 +130,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $partida_id = $pdo->lastInsertId();
 
+            // Salva apenas linhas de estatísticas que contenham algum valor diferente de zero.
             foreach ($atletas as $atleta) {
                 $atleta_id = (int)$atleta['id'];
                 $gols = $estatisticasAtletas[$atleta_id]['gols'];
@@ -147,6 +158,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // Editar partida e suas estatísticas
     if ($action === 'edit_match' && isset($_SESSION['user_id'])) {
+        // Atualiza uma partida existente apenas se ela pertencer ao usuário logado.
         $partida_id = (int)($_POST['partida_id'] ?? 0);
         $adversario = trim($_POST['adversario'] ?? '');
         $data_partida = trim($_POST['data_partida'] ?? '');
@@ -185,12 +197,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 exit;
             }
 
+            // Mantém partida e estatísticas consistentes: ou tudo é salvo, ou nada é alterado.
             $pdo->beginTransaction();
             try {
                 $stmtUpdate = $pdo->prepare("UPDATE partidas SET adversario = ?, data_partida = ?, local = ?, competicao = ?, resultado = ? WHERE id = ? AND usuario_id = ?");
                 $stmtUpdate->execute([$adversario, $data_partida, $local, $competicao, $gols_time . ' x ' . $gols_adversario, $partida_id, $_SESSION['user_id']]);
 
                 if ($partidaFutura) {
+                    // Uma partida futura não deve manter estatísticas já registradas.
                     $stmtDeleteAllStats = $pdo->prepare("DELETE FROM estatisticas_partidas WHERE partida_id = ?");
                     $stmtDeleteAllStats->execute([$partida_id]);
                 }
@@ -198,6 +212,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmtDeleteStats = $pdo->prepare("DELETE FROM estatisticas_partidas WHERE partida_id = ? AND atleta_id = ?");
                 $stmtInsertStats = $pdo->prepare("INSERT INTO estatisticas_partidas (partida_id, atleta_id, gols, assistencias, cartoes_amarelos, cartoes_vermelhos) VALUES (?, ?, ?, ?, ?, ?)");
 
+                // Substitui as estatísticas antigas pelas informadas na edição.
                 foreach ($estatisticasAtletas as $atleta_id => $estatisticas) {
                     $stmtDeleteStats->execute([$partida_id, $atleta_id]);
                     if (array_sum($estatisticas) > 0) {
@@ -217,7 +232,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 }
 
-// Excluir atleta
+// Exclui um atleta somente depois de confirmar que ele pertence ao usuário atual.
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete_athlete' && isset($_SESSION['user_id'])) {
     $atleta_id = (int)($_POST['atleta_id'] ?? 0);
 
@@ -236,13 +251,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     exit;
 }
 
-// Logout
+// Encerra a sessão atual e retorna à tela de autenticação.
 if (isset($_GET['logout'])) {
     session_destroy();
     header('Location: index.php');
     exit;
 }
 
+// Decide se a página exibirá autenticação ou o dashboard.
 $isLoggedIn = isset($_SESSION['user_id']);
 $view = $_GET['view'] ?? ($isLoggedIn ? 'dashboard' : 'login');
 ?>
@@ -312,7 +328,7 @@ $view = $_GET['view'] ?? ($isLoggedIn ? 'dashboard' : 'login');
 <?php else: ?>
     <!-- DASHBOARD PRINCIPAL -->
     <?php
-        // Busca Totais do Usuário com base na tabela de estatísticas por partida
+        // Calcula os indicadores exibidos nos quatro cards do dashboard.
         $stmt = $pdo->prepare("SELECT
                 (SELECT COUNT(*) FROM atletas WHERE usuario_id = ?) as total_atletas,
                 (SELECT COALESCE(SUM(ep.gols), 0) FROM estatisticas_partidas ep JOIN atletas a ON a.id = ep.atleta_id WHERE a.usuario_id = ?) as total_gols,
@@ -321,7 +337,7 @@ $view = $_GET['view'] ?? ($isLoggedIn ? 'dashboard' : 'login');
         $stmt->execute([$_SESSION['user_id'], $_SESSION['user_id'], $_SESSION['user_id'], $_SESSION['user_id']]);
         $stats = $stmt->fetch();
 
-        // Busca Lista de Atletas
+        // Busca o elenco e marca quem possui lesão ativa.
         $stmt = $pdo->prepare("SELECT a.*, EXISTS (
                 SELECT 1 FROM lesoes l
                 WHERE l.atleta_id = a.id AND l.status = 'Em Tratamento'
@@ -332,11 +348,12 @@ $view = $_GET['view'] ?? ($isLoggedIn ? 'dashboard' : 'login');
         $stmt->execute([$_SESSION['user_id']]);
         $atletas = $stmt->fetchAll();
         $suspensoesAtivas = obterSuspensoesAtivas($pdo, (int)$_SESSION['user_id']);
+        // Monta a lista disponível para registrar estatísticas na próxima partida.
         $atletasDisponiveis = array_values(array_filter($atletas, static fn($atleta) => !(bool)$atleta['lesionado'] && empty($suspensoesAtivas[(int)$atleta['id']]['suspenso'])));
         $atletasSuspensos = array_filter($suspensoesAtivas, static fn($status) => $status['suspenso']);
         $atletasComAmarelos = array_filter($suspensoesAtivas, static fn($status) => $status['amarelos'] > 0 && !$status['suspenso']);
 
-        // Busca lista de partidas cadastradas
+        // Carrega o histórico de partidas mais recentes primeiro.
         $stmtPartidas = $pdo->prepare("SELECT * FROM partidas WHERE usuario_id = ? ORDER BY data_partida DESC, id DESC");
         $stmtPartidas->execute([$_SESSION['user_id']]);
         $partidas = $stmtPartidas->fetchAll();
@@ -345,6 +362,7 @@ $view = $_GET['view'] ?? ($isLoggedIn ? 'dashboard' : 'login');
         $editStats = [];
         $editMatchId = (int)($_GET['edit_match'] ?? 0);
         if ($editMatchId > 0) {
+            // Quando há um ID na URL, carrega a partida e suas estatísticas para edição.
             $stmtEditMatch = $pdo->prepare("SELECT * FROM partidas WHERE id = ? AND usuario_id = ?");
             $stmtEditMatch->execute([$editMatchId, $_SESSION['user_id']]);
             $editMatch = $stmtEditMatch->fetch();
@@ -358,12 +376,14 @@ $view = $_GET['view'] ?? ($isLoggedIn ? 'dashboard' : 'login');
             }
         }
 
+        // Separa o texto do resultado (ex.: "3 x 1") nos dois campos do formulário.
         $placarEdicao = [0, 0];
         if ($editMatch && preg_match('/^(\d+)\s*x\s*(\d+)$/i', (string)$editMatch['resultado'], $resultadoPartida)) {
             $placarEdicao = [(int)$resultadoPartida[1], (int)$resultadoPartida[2]];
         }
     ?>
 
+    <!-- Cabeçalho do dashboard com identificação do sistema e saída da conta. -->
     <header class="header">
         <div>
             <h2>JIFC ANALYTICS</h2>
@@ -372,6 +392,7 @@ $view = $_GET['view'] ?? ($isLoggedIn ? 'dashboard' : 'login');
         <a href="?logout=1" style="color: #ef4444; text-decoration: none;">Sair</a>
     </header>
 
+    <!-- Resumo consolidado dos dados registrados pelo usuário. -->
     <section class="stats-grid">
         <div class="stat-card">
             <h3>ATLETAS</h3>
@@ -391,6 +412,7 @@ $view = $_GET['view'] ?? ($isLoggedIn ? 'dashboard' : 'login');
         </div>
     </section>
 
+    <!-- Elenco, alertas disciplinares e atalhos de cadastro. -->
     <section class="content-section">
         <div class="section-toolbar">
             <div>
@@ -421,6 +443,7 @@ $view = $_GET['view'] ?? ($isLoggedIn ? 'dashboard' : 'login');
             </div>
         <?php endif; ?>
 
+        <!-- Cada card direciona ao perfil detalhado de um atleta. -->
         <div class="cards-grid">
             <?php foreach ($atletas as $atleta): ?>
                 <div class="atleta-card-link-wrap">
@@ -451,6 +474,7 @@ $view = $_GET['view'] ?? ($isLoggedIn ? 'dashboard' : 'login');
         </div>
     </section>
 
+    <!-- Histórico de partidas; cada card pode ser clicado para edição. -->
     <section class="content-section">
         <div class="section-toolbar compact">
             <div>
@@ -481,7 +505,7 @@ $view = $_GET['view'] ?? ($isLoggedIn ? 'dashboard' : 'login');
         <?php endif; ?>
     </section>
 
-    <!-- MODAL CADASTRAR / EDITAR PARTIDA -->
+    <!-- Modal reutilizado para cadastrar uma partida nova ou editar uma existente. -->
     <div class="modal" id="modalMatch">
         <div class="modal-content modal-large">
             <span class="close-btn" onclick="closeModal('modalMatch')">&times;</span>
@@ -525,6 +549,7 @@ $view = $_GET['view'] ?? ($isLoggedIn ? 'dashboard' : 'login');
                 <p class="match-future-notice" id="matchFutureNotice" hidden>Partida futura: placar e estatísticas serão liberados após a data do jogo.</p>
                 <p class="match-goals-error" id="matchGoalsError" role="alert"<?= $matchError ? '' : ' hidden' ?>><?= htmlspecialchars($matchError) ?></p>
 
+                <!-- Campos de desempenho disponíveis somente para atletas aptos a jogar. -->
                 <div class="match-table-wrap">
                     <table class="match-table">
                         <thead>
@@ -570,7 +595,7 @@ $view = $_GET['view'] ?? ($isLoggedIn ? 'dashboard' : 'login');
         </div>
     </div>
 
-    <!-- MODAL NOVO ATLETA -->
+    <!-- Modal de cadastro do atleta, incluindo upload ou URL de fotografia. -->
     <div class="modal" id="modalAthlete">
         <div class="modal-content">
             <span class="close-btn" onclick="closeModal('modalAthlete')">&times;</span>
@@ -619,6 +644,7 @@ $view = $_GET['view'] ?? ($isLoggedIn ? 'dashboard' : 'login');
 <?php endif; ?>
 
 <script>
+    // Exibe ou oculta modais pelo identificador recebido.
     function openModal(id) {
         document.getElementById(id).style.display = 'flex';
     }
@@ -629,6 +655,7 @@ $view = $_GET['view'] ?? ($isLoggedIn ? 'dashboard' : 'login');
 
     const matchForm = document.getElementById('matchForm');
     if (matchForm) {
+        // Obtém os elementos necessários para validar o placar no navegador.
         const matchDate = document.getElementById('dataPartida');
         const teamGoals = document.getElementById('golsTime');
         const goalInputs = matchForm.querySelectorAll('.match-player-goals');
@@ -638,6 +665,7 @@ $view = $_GET['view'] ?? ($isLoggedIn ? 'dashboard' : 'login');
         let serverError = error.textContent.trim();
 
         function validatePlayerGoals() {
+            // Impede que a soma dos gols individuais ultrapasse o placar do time.
             const goalValues = Array.from(goalInputs)
                 .map((input) => Math.max(0, Number(input.value) || 0));
             const scoredByPlayers = goalValues.reduce((total, goals) => total + goals, 0);
@@ -657,11 +685,13 @@ $view = $_GET['view'] ?? ($isLoggedIn ? 'dashboard' : 'login');
         }
 
         function updateGoals() {
+            // Revalida o formulário sempre que o placar ou um gol individual muda.
             serverError = '';
             validatePlayerGoals();
         }
 
         function updateFutureMatchFields() {
+            // Desabilita placar e estatísticas enquanto a data da partida for futura.
             const today = new Date();
             const localToday = new Date(today.getTime() - today.getTimezoneOffset() * 60000)
                 .toISOString()
@@ -673,6 +703,7 @@ $view = $_GET['view'] ?? ($isLoggedIn ? 'dashboard' : 'login');
             validatePlayerGoals();
         }
 
+        // Mantém a validação atualizada durante o preenchimento do formulário.
         teamGoals.addEventListener('input', updateGoals);
         goalInputs.forEach((input) => input.addEventListener('input', updateGoals));
         matchDate.addEventListener('change', updateFutureMatchFields);
@@ -693,6 +724,7 @@ $view = $_GET['view'] ?? ($isLoggedIn ? 'dashboard' : 'login');
     }
 
     <?php if ($matchError || $editMatch): ?>
+    // Reabre o modal para mostrar um erro ou os dados da partida selecionada.
     openModal('modalMatch');
     <?php endif; ?>
 
