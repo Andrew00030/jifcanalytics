@@ -91,20 +91,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         if (!empty($adversario) && !empty($data_partida)) {
             // Considera apenas atletas sem lesão em tratamento ou suspensão ativa.
-            $stmtAtletas = $pdo->prepare("SELECT a.id FROM atletas a WHERE a.usuario_id = ? AND NOT EXISTS (SELECT 1 FROM lesoes l WHERE l.atleta_id = a.id AND l.status = 'Em Tratamento') ORDER BY a.nome ASC");
+            $stmtAtletas = $pdo->prepare("SELECT a.id, a.posicao FROM atletas a WHERE a.usuario_id = ? AND NOT EXISTS (SELECT 1 FROM lesoes l WHERE l.atleta_id = a.id AND l.status = 'Em Tratamento') ORDER BY a.nome ASC");
             $stmtAtletas->execute([$_SESSION['user_id']]);
             $atletas = $stmtAtletas->fetchAll();
             $suspensoesAtivas = obterSuspensoesAtivas($pdo, (int)$_SESSION['user_id']);
             $atletas = array_values(array_filter($atletas, static fn($atleta) => empty($suspensoesAtivas[(int)$atleta['id']]['suspenso'])));
+            $goleiroTitularId = $partidaFutura ? 0 : (int)($_POST['goleiro_titular_id'] ?? 0);
+            $defesasGoleiro = $partidaFutura ? 0 : max(0, (int)($_POST['defesas_goleiro'] ?? 0));
+            $goleiroTitularValido = false;
             $estatisticasAtletas = [];
             $totalGolsAtletas = 0;
 
             foreach ($atletas as $atleta) {
                 $atleta_id = (int)$atleta['id'];
+                if ($atleta_id === $goleiroTitularId && $atleta['posicao'] === 'Goleiro') {
+                    $goleiroTitularValido = true;
+                }
                 $gols = max(0, (int)($_POST['gols_' . $atleta_id] ?? 0));
                 $estatisticasAtletas[$atleta_id] = [
                     'gols' => $gols,
                     'assistencias' => max(0, (int)($_POST['assistencias_' . $atleta_id] ?? 0)),
+                    'defesas' => $atleta_id === $goleiroTitularId ? $defesasGoleiro : 0,
+                    'gols_sofridos' => $atleta_id === $goleiroTitularId ? $gols_adversario : 0,
+                    'goleiro_titular' => $atleta_id === $goleiroTitularId ? 1 : 0,
                     'cartoes_amarelos' => min(2, max(0, (int)($_POST['cartoes_amarelos_' . $atleta_id] ?? 0))),
                     'cartoes_vermelhos' => min(1, max(0, (int)($_POST['cartoes_vermelhos_' . $atleta_id] ?? 0))),
                 ];
@@ -114,6 +123,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($totalGolsAtletas > $gols_time) {
                 // Impede que os gols individuais ultrapassem os gols do time.
                 $_SESSION['match_error'] = "Os gols dos atletas ({$totalGolsAtletas}) não podem ser maiores que os gols do time no placar ({$gols_time}).";
+                header('Location: index.php');
+                exit;
+            }
+
+            if (!$partidaFutura && !$goleiroTitularValido) {
+                $_SESSION['match_error'] = 'Selecione um goleiro titular disponível para registrar a partida.';
                 header('Location: index.php');
                 exit;
             }
@@ -130,21 +145,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             $partida_id = $pdo->lastInsertId();
 
-            // Salva apenas linhas de estatísticas que contenham algum valor diferente de zero.
+            // Registra todos os atletas elegíveis para contabilizar sua participação na partida.
             foreach ($atletas as $atleta) {
                 $atleta_id = (int)$atleta['id'];
                 $gols = $estatisticasAtletas[$atleta_id]['gols'];
                 $assistencias = $estatisticasAtletas[$atleta_id]['assistencias'];
+                $defesas = $estatisticasAtletas[$atleta_id]['defesas'];
+                $gols_sofridos = $estatisticasAtletas[$atleta_id]['gols_sofridos'];
+                $goleiro_titular = $estatisticasAtletas[$atleta_id]['goleiro_titular'];
                 $cartoes_amarelos = $estatisticasAtletas[$atleta_id]['cartoes_amarelos'];
                 $cartoes_vermelhos = $estatisticasAtletas[$atleta_id]['cartoes_vermelhos'];
 
-                if ($gols > 0 || $assistencias > 0 || $cartoes_amarelos > 0 || $cartoes_vermelhos > 0) {
-                    $stmtEst = $pdo->prepare("INSERT INTO estatisticas_partidas (partida_id, atleta_id, gols, assistencias, cartoes_amarelos, cartoes_vermelhos) VALUES (?, ?, ?, ?, ?, ?)");
+                // Cria um registro para todos os atletas elegíveis e contabiliza a partida, mesmo com estatísticas zeradas.
+                if (!$partidaFutura) {
+                    $stmtEst = $pdo->prepare("INSERT INTO estatisticas_partidas (partida_id, atleta_id, gols, assistencias, defesas, gols_sofridos, goleiro_titular, cartoes_amarelos, cartoes_vermelhos) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
                     $stmtEst->execute([
                         $partida_id,
                         $atleta_id,
                         $gols,
                         $assistencias,
+                        $defesas,
+                        $gols_sofridos,
+                        $goleiro_titular,
                         $cartoes_amarelos,
                         $cartoes_vermelhos
                     ]);
@@ -172,19 +194,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmtPartida->execute([$partida_id, $_SESSION['user_id']]);
 
         if ($partida_id > 0 && $stmtPartida->fetch() && $adversario !== '' && $data_partida !== '') {
-            $stmtAtletas = $pdo->prepare("SELECT a.id FROM atletas a WHERE a.usuario_id = ? AND NOT EXISTS (SELECT 1 FROM lesoes l WHERE l.atleta_id = a.id AND l.status = 'Em Tratamento') ORDER BY a.nome ASC");
+            $stmtAtletas = $pdo->prepare("SELECT a.id, a.posicao FROM atletas a WHERE a.usuario_id = ? AND NOT EXISTS (SELECT 1 FROM lesoes l WHERE l.atleta_id = a.id AND l.status = 'Em Tratamento') ORDER BY a.nome ASC");
             $stmtAtletas->execute([$_SESSION['user_id']]);
             $suspensoesAtivas = obterSuspensoesAtivas($pdo, (int)$_SESSION['user_id']);
+            $goleiroTitularId = $partidaFutura ? 0 : (int)($_POST['goleiro_titular_id'] ?? 0);
+            $defesasGoleiro = $partidaFutura ? 0 : max(0, (int)($_POST['defesas_goleiro'] ?? 0));
+            $goleiroTitularValido = false;
             $estatisticasAtletas = [];
             $totalGolsAtletas = 0;
 
             foreach ($stmtAtletas->fetchAll() as $atleta) {
                 $atleta_id = (int)$atleta['id'];
                 if (!empty($suspensoesAtivas[$atleta_id]['suspenso'])) continue;
+                if ($atleta_id === $goleiroTitularId && $atleta['posicao'] === 'Goleiro') {
+                    $goleiroTitularValido = true;
+                }
                 $gols = $partidaFutura ? 0 : max(0, (int)($_POST['gols_' . $atleta_id] ?? 0));
                 $estatisticasAtletas[$atleta_id] = [
                     'gols' => $gols,
                     'assistencias' => $partidaFutura ? 0 : max(0, (int)($_POST['assistencias_' . $atleta_id] ?? 0)),
+                    'defesas' => $atleta_id === $goleiroTitularId ? $defesasGoleiro : 0,
+                    'gols_sofridos' => $atleta_id === $goleiroTitularId ? $gols_adversario : 0,
+                    'goleiro_titular' => $atleta_id === $goleiroTitularId ? 1 : 0,
                     'cartoes_amarelos' => $partidaFutura ? 0 : min(2, max(0, (int)($_POST['cartoes_amarelos_' . $atleta_id] ?? 0))),
                     'cartoes_vermelhos' => $partidaFutura ? 0 : min(1, max(0, (int)($_POST['cartoes_vermelhos_' . $atleta_id] ?? 0))),
                 ];
@@ -198,6 +229,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             // Mantém partida e estatísticas consistentes: ou tudo é salvo, ou nada é alterado.
+            if (!$partidaFutura && !$goleiroTitularValido) {
+                $_SESSION['match_error'] = 'Selecione um goleiro titular disponível para registrar a partida.';
+                header('Location: index.php?edit_match=' . $partida_id);
+                exit;
+            }
+
             $pdo->beginTransaction();
             try {
                 $stmtUpdate = $pdo->prepare("UPDATE partidas SET adversario = ?, data_partida = ?, local = ?, competicao = ?, resultado = ? WHERE id = ? AND usuario_id = ?");
@@ -210,13 +247,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
 
                 $stmtDeleteStats = $pdo->prepare("DELETE FROM estatisticas_partidas WHERE partida_id = ? AND atleta_id = ?");
-                $stmtInsertStats = $pdo->prepare("INSERT INTO estatisticas_partidas (partida_id, atleta_id, gols, assistencias, cartoes_amarelos, cartoes_vermelhos) VALUES (?, ?, ?, ?, ?, ?)");
+                $stmtInsertStats = $pdo->prepare("INSERT INTO estatisticas_partidas (partida_id, atleta_id, gols, assistencias, defesas, gols_sofridos, goleiro_titular, cartoes_amarelos, cartoes_vermelhos) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
 
                 // Substitui as estatísticas antigas pelas informadas na edição.
                 foreach ($estatisticasAtletas as $atleta_id => $estatisticas) {
                     $stmtDeleteStats->execute([$partida_id, $atleta_id]);
-                    if (array_sum($estatisticas) > 0) {
-                        $stmtInsertStats->execute([$partida_id, $atleta_id, $estatisticas['gols'], $estatisticas['assistencias'], $estatisticas['cartoes_amarelos'], $estatisticas['cartoes_vermelhos']]);
+                    // Em partidas realizadas, o registro com zeros também representa a participação do atleta.
+                    if (!$partidaFutura) {
+                        $stmtInsertStats->execute([$partida_id, $atleta_id, $estatisticas['gols'], $estatisticas['assistencias'], $estatisticas['defesas'], $estatisticas['gols_sofridos'], $estatisticas['goleiro_titular'], $estatisticas['cartoes_amarelos'], $estatisticas['cartoes_vermelhos']]);
                     }
                 }
                 $pdo->commit();
@@ -350,6 +388,7 @@ $view = $_GET['view'] ?? ($isLoggedIn ? 'dashboard' : 'login');
         $suspensoesAtivas = obterSuspensoesAtivas($pdo, (int)$_SESSION['user_id']);
         // Monta a lista disponível para registrar estatísticas na próxima partida.
         $atletasDisponiveis = array_values(array_filter($atletas, static fn($atleta) => !(bool)$atleta['lesionado'] && empty($suspensoesAtivas[(int)$atleta['id']]['suspenso'])));
+        $goleirosDisponiveis = array_values(array_filter($atletasDisponiveis, static fn($atleta) => $atleta['posicao'] === 'Goleiro'));
         $atletasSuspensos = array_filter($suspensoesAtivas, static fn($status) => $status['suspenso']);
         $atletasComAmarelos = array_filter($suspensoesAtivas, static fn($status) => $status['amarelos'] > 0 && !$status['suspenso']);
 
@@ -360,6 +399,7 @@ $view = $_GET['view'] ?? ($isLoggedIn ? 'dashboard' : 'login');
 
         $editMatch = null;
         $editStats = [];
+        $goleiroTitularEdicao = 0;
         $editMatchId = (int)($_GET['edit_match'] ?? 0);
         if ($editMatchId > 0) {
             // Quando há um ID na URL, carrega a partida e suas estatísticas para edição.
@@ -368,10 +408,13 @@ $view = $_GET['view'] ?? ($isLoggedIn ? 'dashboard' : 'login');
             $editMatch = $stmtEditMatch->fetch();
 
             if ($editMatch) {
-                $stmtEditStats = $pdo->prepare("SELECT atleta_id, gols, assistencias, cartoes_amarelos, cartoes_vermelhos FROM estatisticas_partidas WHERE partida_id = ?");
+                $stmtEditStats = $pdo->prepare("SELECT atleta_id, gols, assistencias, defesas, gols_sofridos, goleiro_titular, cartoes_amarelos, cartoes_vermelhos FROM estatisticas_partidas WHERE partida_id = ?");
                 $stmtEditStats->execute([$editMatchId]);
                 foreach ($stmtEditStats->fetchAll() as $estatistica) {
                     $editStats[(int)$estatistica['atleta_id']] = $estatistica;
+                    if ((int)$estatistica['goleiro_titular'] === 1) {
+                        $goleiroTitularEdicao = (int)$estatistica['atleta_id'];
+                    }
                 }
             }
         }
@@ -510,7 +553,7 @@ $view = $_GET['view'] ?? ($isLoggedIn ? 'dashboard' : 'login');
         <div class="modal-content modal-large">
             <span class="close-btn" onclick="closeModal('modalMatch')">&times;</span>
             <h2 style="margin-bottom: 1.5rem;"><?= $editMatch ? 'EDITAR PARTIDA' : 'CADASTRAR PARTIDA' ?></h2>
-            <form method="POST" id="matchForm">
+            <form method="POST" id="matchForm" data-has-goalkeeper="<?= empty($goleirosDisponiveis) ? '0' : '1' ?>">
                 <input type="hidden" name="action" value="<?= $editMatch ? 'edit_match' : 'add_match' ?>">
                 <?php if ($editMatch): ?>
                     <input type="hidden" name="partida_id" value="<?= (int)$editMatch['id'] ?>">
@@ -550,6 +593,25 @@ $view = $_GET['view'] ?? ($isLoggedIn ? 'dashboard' : 'login');
                 <p class="match-goals-error" id="matchGoalsError" role="alert"<?= $matchError ? '' : ' hidden' ?>><?= htmlspecialchars($matchError) ?></p>
 
                 <!-- Campos de desempenho disponíveis somente para atletas aptos a jogar. -->
+                <div class="form-row">
+                    <div class="form-group" style="flex: 1;">
+                        <label>GOLEIRO TITULAR</label>
+                        <select name="goleiro_titular_id" id="goleiroTitular" class="form-control"<?= empty($goleirosDisponiveis) ? ' disabled' : ' required' ?>>
+                            <option value=""><?= empty($goleirosDisponiveis) ? 'Nenhum goleiro disponível' : 'Selecione o goleiro' ?></option>
+                            <?php foreach ($goleirosDisponiveis as $goleiro): ?>
+                                <option value="<?= (int)$goleiro['id'] ?>"<?= $goleiroTitularEdicao === (int)$goleiro['id'] ? ' selected' : '' ?>>
+                                    <?= htmlspecialchars($goleiro['nome']) ?> (#<?= (int)$goleiro['numero'] ?>)
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="form-group" style="flex: 1;">
+                        <label>DEFESAS DO GOLEIRO</label>
+                        <input type="number" name="defesas_goleiro" id="defesasGoleiro" class="form-control" value="<?= (int)($editStats[$goleiroTitularEdicao]['defesas'] ?? 0) ?>" min="0"<?= empty($goleirosDisponiveis) ? ' disabled' : ' required' ?>>
+                    </div>
+                </div>
+                <p class="statistics-intro" style="margin: -0.5rem 0 1rem;">Os gols do adversário serão registrados automaticamente como gols sofridos pelo goleiro titular.</p>
+
                 <div class="match-table-wrap">
                     <table class="match-table">
                         <thead>
@@ -608,7 +670,7 @@ $view = $_GET['view'] ?? ($isLoggedIn ? 'dashboard' : 'login');
                 </div>
                 <div style="display: flex; gap: 1rem;">
                     <div class="form-group" style="flex: 1;">
-                        <label>NÚMERO</label>
+                        <label>NÚMERO DA CAMISA</label>
                         <input type="number" name="numero" class="form-control" required>
                     </div>
                     <div class="form-group" style="flex: 1;">
@@ -662,6 +724,7 @@ $view = $_GET['view'] ?? ($isLoggedIn ? 'dashboard' : 'login');
         const error = document.getElementById('matchGoalsError');
         const futureNotice = document.getElementById('matchFutureNotice');
         const submitButton = matchForm.querySelector('[type="submit"]');
+        const hasAvailableGoalkeeper = matchForm.dataset.hasGoalkeeper === '1';
         let serverError = error.textContent.trim();
 
         function validatePlayerGoals() {
@@ -699,6 +762,8 @@ $view = $_GET['view'] ?? ($isLoggedIn ? 'dashboard' : 'login');
             const isFuture = Boolean(matchDate.value && matchDate.value > localToday);
             matchForm.querySelectorAll('[name="gols_time"], [name="gols_adversario"], [name^="gols_"], [name^="assistencias_"], [name^="cartoes_amarelos_"], [name^="cartoes_vermelhos_"]')
                 .forEach((field) => field.disabled = isFuture);
+            matchForm.querySelectorAll('[name="goleiro_titular_id"], [name="defesas_goleiro"]')
+                .forEach((field) => field.disabled = isFuture || !hasAvailableGoalkeeper);
             futureNotice.hidden = !isFuture;
             validatePlayerGoals();
         }

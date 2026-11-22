@@ -78,6 +78,8 @@ $stmtStats = $pdo->prepare("
     SELECT 
         COALESCE(SUM(gols), 0) as total_gols,
         COALESCE(SUM(assistencias), 0) as total_assistencias,
+        COALESCE(SUM(defesas), 0) as total_defesas,
+        COALESCE(SUM(gols_sofridos), 0) as total_gols_sofridos,
         COALESCE(SUM(cartoes_amarelos), 0) as cartoes_amarelos,
         COALESCE(SUM(cartoes_vermelhos), 0) as cartoes_vermelhos,
         COUNT(DISTINCT partida_id) as partidas
@@ -90,7 +92,8 @@ $stats = $stmtStats->fetch(PDO::FETCH_ASSOC);
 // Buscar histórico de partidas do atleta
 $stmtPartidasAtleta = $pdo->prepare("
     SELECT p.id, p.adversario, p.data_partida, p.local, p.competicao, p.resultado,
-            ep.gols, ep.assistencias, ep.cartoes_amarelos, ep.cartoes_vermelhos
+            ep.gols, ep.assistencias, ep.defesas, ep.gols_sofridos, ep.goleiro_titular,
+            ep.cartoes_amarelos, ep.cartoes_vermelhos
     FROM estatisticas_partidas ep
     JOIN partidas p ON p.id = ep.partida_id
     WHERE ep.atleta_id = ?
@@ -149,6 +152,16 @@ $lesoes = $stmtLesoes->fetchAll(PDO::FETCH_ASSOC);
                 <span>Assistências</span>
                 <strong><?= $stats['total_assistencias'] ?></strong>
             </div>
+            <?php if ($atleta['posicao'] === 'Goleiro'): ?>
+                <div class="card-stat">
+                    <span>Defesas</span>
+                    <strong><?= $stats['total_defesas'] ?></strong>
+                </div>
+                <div class="card-stat">
+                    <span>Gols Sofridos</span>
+                    <strong><?= $stats['total_gols_sofridos'] ?></strong>
+                </div>
+            <?php endif; ?>
             <div class="card-stat">
                 <span>Cartões Amarelos</span>
                 <strong><?= $stats['cartoes_amarelos'] ?></strong>
@@ -185,6 +198,12 @@ $lesoes = $stmtLesoes->fetchAll(PDO::FETCH_ASSOC);
                                 Assistências: <?= (int)$partida['assistencias'] ?> |
                                 Cartões: <?= (int)$partida['cartoes_amarelos'] ?> amarelo / <?= (int)$partida['cartoes_vermelhos'] ?> vermelho
                             </p>
+                            <?php if ((int)$partida['goleiro_titular'] === 1): ?>
+                                <p style="color: #cfcfcf; font-size: 13px; margin: 4px 0 0 0;">
+                                    Defesas: <?= (int)$partida['defesas'] ?> |
+                                    Gols sofridos: <?= (int)$partida['gols_sofridos'] ?>
+                                </p>
+                            <?php endif; ?>
                         </div>
                     </div>
                 <?php endforeach; ?>

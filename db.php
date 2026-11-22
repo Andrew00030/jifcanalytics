@@ -15,6 +15,29 @@ try {
 }
 
 /**
+ * Adds goalkeeper fields to databases created before those fields existed.
+ */
+function garantirCamposEstatisticasGoleiro(PDO $pdo): void {
+    $colunas = $pdo->query("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'estatisticas_partidas'")
+        ->fetchAll(PDO::FETCH_COLUMN);
+    $colunasExistentes = array_flip($colunas);
+
+    $migracoes = [
+        'defesas' => 'ALTER TABLE estatisticas_partidas ADD COLUMN defesas INT NOT NULL DEFAULT 0 AFTER assistencias',
+        'gols_sofridos' => 'ALTER TABLE estatisticas_partidas ADD COLUMN gols_sofridos INT NOT NULL DEFAULT 0 AFTER defesas',
+        'goleiro_titular' => 'ALTER TABLE estatisticas_partidas ADD COLUMN goleiro_titular TINYINT(1) NOT NULL DEFAULT 0 AFTER gols_sofridos',
+    ];
+
+    foreach ($migracoes as $coluna => $sql) {
+        if (!isset($colunasExistentes[$coluna])) {
+            $pdo->exec($sql);
+        }
+    }
+}
+
+garantirCamposEstatisticasGoleiro($pdo);
+
+/**
  * Regra disciplinar: vermelho, dois amarelos na mesma partida ou três
  * amarelos acumulados suspendem o atleta para a partida seguinte.
  */
